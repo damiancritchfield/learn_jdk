@@ -34,3 +34,4 @@ build/
 
 target/
 openjdk-*/openjdk/build
+openjdk-8u41/openjdk/config.log

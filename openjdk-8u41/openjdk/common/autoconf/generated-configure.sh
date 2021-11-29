@@ -7246,7 +7246,7 @@ $as_echo "$CYGWIN_VERSION" >&6; }
     WINDOWS_ENV_VENDOR='cygwin'
     WINDOWS_ENV_VERSION="$CYGWIN_VERSION"
 
-    CYGWIN_VERSION_OK=`$ECHO $CYGWIN_VERSION | $GREP ^1.7.`
+    CYGWIN_VERSION_OK=`$ECHO $CYGWIN_VERSION | $GREP ^$CYGWIN_VERSION`
     if test "x$CYGWIN_VERSION_OK" = x; then
       { $as_echo "$as_me:${as_lineno-$LINENO}: Your cygwin is too old. You are running $CYGWIN_VERSION, but at least cygwin 1.7 is required. Please upgrade." >&5
 $as_echo "$as_me: Your cygwin is too old. You are running $CYGWIN_VERSION, but at least cygwin 1.7 is required. Please upgrade." >&6;}
