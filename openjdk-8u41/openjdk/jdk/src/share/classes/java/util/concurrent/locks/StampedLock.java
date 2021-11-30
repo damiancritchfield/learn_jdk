@@ -268,43 +268,81 @@ public class StampedLock implements java.io.Serializable {
 
     private static final long serialVersionUID = -6001602636862214147L;
 
-    /** Number of processors, for spin control */
+    /** Number of processors, for spin control
+     * 获取当前处理器的总线程数, 用于自旋控制，此处，NCPU=12，处理器为i7-8700，6核12线程
+     * */
     private static final int NCPU = Runtime.getRuntime().availableProcessors();
 
-    /** Maximum number of retries before enqueuing on acquisition */
+    /** Maximum number of retries before enqueuing on acquisition
+     * 在开始排队获取锁前，重试的最大次数。此处，SPINS=64。
+     * 1.如果当前处理器为多核处理器，SPINS=2^6=64
+     * 2.如果当前处理器为单核处理器，SPINS=0
+     * 因为现在市场上的处理器大部分为多核处理器，所以SPINS基本上取值为64
+     * */
     private static final int SPINS = (NCPU > 1) ? 1 << 6 : 0;
 
-    /** Maximum number of retries before blocking at head on acquisition */
+    /** Maximum number of retries before blocking at head on acquisition
+     * 在阻塞在头部获取锁前，重试的最大次数。此处，HEAD_SPINS=1024。
+     * 1.如果当前处理器为多核处理器，HEAD_SPINS=2^10=1024
+     * 2.如果当前处理器为单核处理器，HEAD_SPINS=0
+     * 因为现在市场上的处理器大部分为多核处理器，所以HEAD_SPINS基本上取值为1024
+     * */
     private static final int HEAD_SPINS = (NCPU > 1) ? 1 << 10 : 0;
 
-    /** Maximum number of retries before re-blocking */
+    /** Maximum number of retries before re-blocking
+     * 在再次阻塞前，重试的最大次数。此处，MAX_HEAD_SPINS=65536。
+     * 1.如果当前处理器为多核处理器，MAX_HEAD_SPINS=2^16=65536
+     * 2.如果当前处理器为单核处理器，MAX_HEAD_SPINS=0
+     * 因为现在市场上的处理器大部分为多核处理器，所以MAX_HEAD_SPINS基本上取值为65536
+     * */
     private static final int MAX_HEAD_SPINS = (NCPU > 1) ? 1 << 16 : 0;
 
-    /** The period for yielding when waiting for overflow spinlock */
+    /** The period for yielding when waiting for overflow spinlock
+     * 等待溢出自旋锁的让步时间
+     * */
     private static final int OVERFLOW_YIELD_RATE = 7; // must be power 2 - 1
 
-    /** The number of bits to use for reader count before overflowing */
+    /** The number of bits to use for reader count before overflowing
+     * 溢出前，用于读取器计数的位数
+     * */
     private static final int LG_READERS = 7;
 
     // Values for lock state and stamp operations
+    // 用于锁状态和戳记操作的值
+    // RUNIT=0b00000001
     private static final long RUNIT = 1L;
+
+    // WBIT=1 << 7 = 128 = 0b10000000
     private static final long WBIT  = 1L << LG_READERS;
+
+    // RBITS = 0b10000000 - 1 = 127 = 0b01111111
     private static final long RBITS = WBIT - 1L;
+
+    // RFULL = 0b01111111 - 1 = 128 = 0b01111110
     private static final long RFULL = RBITS - 1L;
+
+    // ABITS = 0b01111111 | 0b10000000 = 255 = 0b11111111
     private static final long ABITS = RBITS | WBIT;
+
+    // SBITS = ~0b01111111 = 0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_10000000
+    // 非（~）运算符
     private static final long SBITS = ~RBITS; // note overlap with ABITS
 
     // Initial value for lock state; avoid failure value zero
+    // 锁状态的初始值；避免故障值为零，ORIGIN=256=0b00000001_00000000
     private static final long ORIGIN = WBIT << 1;
 
     // Special value from cancelled acquire methods so caller can throw IE
+    // 被取消的获取方法的特殊值，以便调用者抛出IE
     private static final long INTERRUPTED = 1L;
 
     // Values for node status; order matters
+    // 节点状态值;顺序很重要
     private static final int WAITING   = -1;
     private static final int CANCELLED =  1;
 
     // Modes for nodes (int not boolean to allow arithmetic)
+    // 节点模式（int而不是boolean，允许算术运）
     private static final int RMODE = 0;
     private static final int WMODE = 1;
 
@@ -312,16 +350,34 @@ public class StampedLock implements java.io.Serializable {
     static final class WNode {
         volatile WNode prev;
         volatile WNode next;
+
+        // 读者链接表
         volatile WNode cowait;    // list of linked readers
+
+        // 当可能parked时非空
         volatile Thread thread;   // non-null while possibly parked
+
+        // 节点状态，3种可能的取值：0, WAITING, 或CANCELLED
         volatile int status;      // 0, WAITING, or CANCELLED
+
+        // 节点模式，读模式或写模式：RMODE或WMODE
         final int mode;           // RMODE or WMODE
+
+        /**
+         * 节点构造方法
+         * @param m 节点模式
+         * @param p 节点的前一个节点
+         */
         WNode(int m, WNode p) { mode = m; prev = p; }
     }
 
-    /** Head of CLH queue */
+    /** Head of CLH queue
+     * 队列的头
+     * */
     private transient volatile WNode whead;
-    /** Tail (last) of CLH queue */
+    /** Tail (last) of CLH queue
+     * 队列的尾
+     * */
     private transient volatile WNode wtail;
 
     // views
@@ -329,13 +385,18 @@ public class StampedLock implements java.io.Serializable {
     transient WriteLockView writeLockView;
     transient ReadWriteLockView readWriteLockView;
 
-    /** Lock sequence/state */
+    /** Lock sequence/state
+     * 锁顺序或状态
+     * */
     private transient volatile long state;
-    /** extra reader count when state read count saturated */
+    /** extra reader count when state read count saturated
+     * 当读计数达到饱和状态时，额外的读计数
+     * */
     private transient int readerOverflow;
 
     /**
      * Creates a new lock, initially in unlocked state.
+     * 创建一个新锁，最初处于解锁状态。
      */
     public StampedLock() {
         state = ORIGIN;
