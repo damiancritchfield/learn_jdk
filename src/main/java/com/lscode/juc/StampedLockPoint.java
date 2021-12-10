@@ -40,4 +40,10 @@ public class StampedLockPoint {
         return Math.sqrt(currentX * currentX + currentY * currentY);
     }
 
+    public static void main(String[] args) {
+        int a = 0b11111111111111111111111111110000;
+        System.out.println(a+0b10000);
+
+    }
+
 }

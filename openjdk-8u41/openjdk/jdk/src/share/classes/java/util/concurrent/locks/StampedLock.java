@@ -435,6 +435,8 @@ public class StampedLock implements java.io.Serializable {
         这种方式进入自旋流程，interruptible为false，且deadline=0
          */
 
+        // 读锁占有，也是无法加写锁的
+
         return ((((s = state) & ABITS) == 0L &&
                  U.compareAndSwapLong(this, STATE, s, next = s + WBIT)) ?
                 next : acquireWrite(false, 0L));
@@ -643,13 +645,19 @@ public class StampedLock implements java.io.Serializable {
 
         // 如果当前状态不等于传入的戳记，或者传入的戳记的第一组8位的最高一位等于0，即不是加锁状态
         // 则抛出异常
+        // 如果写锁释放前加读锁，是会使state改变的，因此，写锁未释放，悲观读锁是无法加锁成功的
         if (state != stamp || (stamp & WBIT) == 0L)
             throw new IllegalMonitorStateException();
 
         // 设置锁状态为戳记的第一组8位的最高一位加1
+        // 如果戳记写锁位加1后等于0，则说明写锁位已经溢出了，此时将锁状态设置为初始状态。溢出会使数值置0，例如(int 32bit)0b11111111111111111111111111110000+0b10000==0
+        // 否则将锁状态设置为戳记写锁位加1
+        // 由此可以得出结论，每一组写锁的获取与释放成功操作，都会使锁状态的高56位+1，因此，锁状态高56位的值，代表写锁获得和释放组的次数。
         state = (stamp += WBIT) == 0L ? ORIGIN : stamp;
 
         // 如果head不等于空且头的状态不等于0
+        // 链表头节点的状态在初创建的时候是0，在进行前两轮自旋仍然未获得锁时，才会使用CAS设置状态为WAITING，即-1
+        // 因此在头节点还未进入WAITING状态的之前，是不需要释放节点的。因为在此之后，节点不需要被动唤醒，还会主动获得锁，不需要在这次释放时锁时唤醒下一个节点
         if ((h = whead) != null && h.status != 0)
             release(h);
     }
@@ -665,9 +673,14 @@ public class StampedLock implements java.io.Serializable {
     public void unlockRead(long stamp) {
         long s, m; WNode h;
         for (;;) {
+            // 1.如果写锁位57位有变更，抛异常
+            // 2.戳记读锁位低8位为0，抛异常
+            // 3.状态低8位为0，抛异常
+            // 4.写锁位1位未释放，抛异常
             if (((s = state) & SBITS) != (stamp & SBITS) ||
                 (stamp & ABITS) == 0L || (m = s & ABITS) == 0L || m == WBIT)
                 throw new IllegalMonitorStateException();
+
             if (m < RFULL) {
                 if (U.compareAndSwapLong(this, STATE, s, s - RUNIT)) {
                     if (m == RUNIT && (h = whead) != null && h.status != 0)
@@ -1134,6 +1147,7 @@ public class StampedLock implements java.io.Serializable {
 
             // 如果h的下一个节点为空，或者q的状态为CANCELLED
             // 从锁链表尾部往回找，找到第一个状态为WAITING的节点，使q指向这个节点
+            // 为何需要从尾节点往回找呢？而不是直接往下找呢？
             if ((q = h.next) == null || q.status == CANCELLED) {
                 for (WNode t = wtail; t != null && t != h; t = t.prev)
                     if (t.status <= 0)
@@ -1141,7 +1155,7 @@ public class StampedLock implements java.io.Serializable {
             }
 
             // 如果h的下一个节点的状态为CANCELLED，unpark第一个WAITING节点
-            // 否则unpark这个h的下一个节点
+            // 否则unpark这里h节点的下一个节点
             if (q != null && (w = q.thread) != null)
                 U.unpark(w);
         }
@@ -1278,6 +1292,7 @@ public class StampedLock implements java.io.Serializable {
                 }
 
                 // 设置ps为p的状态，如果p.status为0，则使用CAS设置p的状态为WAITING
+                // 还有一种情况，在释放写锁的时候，会设置头节点为0
                 else if ((ps = p.status) == 0)
                     U.compareAndSwapInt(p, WSTATUS, 0, WAITING);
 
@@ -1496,7 +1511,7 @@ public class StampedLock implements java.io.Serializable {
                         (m < WBIT && (ns = tryIncReaderOverflow(s)) != 0L)) {
                         WNode c; Thread w;
 
-                        // 设置链表为头节点，至此，node失去了获取锁节点的意义
+                        // 设置node为链表头节点，至此，node失去了获取锁节点的意义
                         whead = node;
                         node.prev = null;
 
