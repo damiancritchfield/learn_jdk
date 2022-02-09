@@ -1,17 +1,4 @@
-HELP.md
-target/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
-
-### STS ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
+#是能够匹配/ab1/ds/.idea/目录和/ab1/ds/.idea文件的
 
 ### IntelliJ IDEA ###
 .idea
@@ -19,20 +6,23 @@ target/
 *.iml
 *.ipr
 
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
-
 ### VS Code ###
 .vscode/
 
-target/
-openjdk-*/openjdk/build
-openjdk-8u41/openjdk/config.log
-openjdk-*/openjdk.zip
+#忽略maven编译生成的/target/
+/target/
+
+#忽略下载openjdk源码时存放的openjdk.zip
+/openjdk-*/openjdk.zip
+
+#忽略configure命令的日志
+/openjdk-8u41/openjdk/config.log
+
+### 引入.hgignore文件忽略的文件，加以修改 ###
+/openjdk-*/openjdk/build/
+# ^dist/
+# nbproject/private/
+# ^webrev
+# ^.hgtip
+# ^.bridge2
+# .DS_Store
