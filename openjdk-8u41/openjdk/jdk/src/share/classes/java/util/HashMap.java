@@ -624,8 +624,11 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
                    boolean evict) {
         Node<K,V>[] tab; Node<K,V> p; int n, i;
+
+        // n代表table数组的大小，tab为当前table数组
         if ((tab = table) == null || (n = tab.length) == 0)
             n = (tab = resize()).length;
+
         if ((p = tab[i = (n - 1) & hash]) == null)
             tab[i] = newNode(hash, key, value, null);
         else {
@@ -675,18 +678,29 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      */
     final Node<K,V>[] resize() {
         Node<K,V>[] oldTab = table;
+
+        // oldTab表示旧table的长度
         int oldCap = (oldTab == null) ? 0 : oldTab.length;
+
+        // oldThr表示旧的阈值
         int oldThr = threshold;
+
+        // 初始化新的table数组长度（newCap）和新的阈值为0
         int newCap, newThr = 0;
         if (oldCap > 0) {
+            // 对于已经超过最大容量的map，不再进行resize，直接返回
             if (oldCap >= MAXIMUM_CAPACITY) {
                 threshold = Integer.MAX_VALUE;
                 return oldTab;
             }
+
+            // 新的table数组长度为旧的table数组长度*2，如果新的table长度未超过最大容量，且旧的table数组长度>=默认初始容量，设置新的阈值为旧的阈值*2
             else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
                      oldCap >= DEFAULT_INITIAL_CAPACITY)
                 newThr = oldThr << 1; // double threshold
         }
+
+        // 如果旧的阈值大于0，设置新的容量为旧的阈值
         else if (oldThr > 0) // initial capacity was placed in threshold
             newCap = oldThr;
         else {               // zero initial threshold signifies using defaults

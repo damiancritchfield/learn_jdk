@@ -815,8 +815,12 @@ public class ForkJoinPool extends AbstractExecutorService {
 
         WorkQueue(ForkJoinPool pool, ForkJoinWorkerThread owner) {
             this.pool = pool;
+
+            // WorkQueue的拥有者，是一个线程
             this.owner = owner;
+
             // Place indices in the center of array (that is not yet allocated)
+            // INITIAL_QUEUE_CAPACITY的值默认为1 << 13 = 8192
             base = top = INITIAL_QUEUE_CAPACITY >>> 1;
         }
 
@@ -1384,8 +1388,11 @@ public class ForkJoinPool extends AbstractExecutorService {
     private static final int  SHUTDOWN   = 1 << 31;
 
     // Instance fields
+    // ctl的二进制位含义为：-parallelism补码低16位[ff ff] + -parallelism补码低16位[ff ff] + 含义未知32位[ff ff ff ff]
     volatile long ctl;                   // main pool control
     volatile int runState;               // lockable status
+
+    // config的二进制位含义为：含义未知15位[ff 0000000] + FIFO_QUEUE标志位1位[0] + parallelism原码低16位[ff ff]
     final int config;                    // parallelism, mode
     int indexSeed;                       // to generate worker index
     volatile WorkQueue[] workQueues;     // main registry
@@ -1396,6 +1403,8 @@ public class ForkJoinPool extends AbstractExecutorService {
 
     /**
      * Acquires the runState lock; returns current (locked) runState.
+     *
+     * 如果当前运行状态为已锁定；或者当前运行状态为未锁定，但加锁失败，则进入自旋加锁流程。否则代表加锁成功，直接返回加锁后的运行状态。
      */
     private int lockRunState() {
         int rs;
@@ -1411,7 +1420,11 @@ public class ForkJoinPool extends AbstractExecutorService {
     private int awaitRunStateLock() {
         Object lock;
         boolean wasInterrupted = false;
+
+        // 自旋
         for (int spins = SPINS, r = 0, rs, ns;;) {
+
+            // 每次自旋再次尝试加锁
             if (((rs = runState) & RSLOCK) == 0) {
                 if (U.compareAndSwapInt(this, RUNSTATE, rs, ns = rs | RSLOCK)) {
                     if (wasInterrupted) {
@@ -1528,14 +1541,24 @@ public class ForkJoinPool extends AbstractExecutorService {
     final WorkQueue registerWorker(ForkJoinWorkerThread wt) {
         UncaughtExceptionHandler handler;
         wt.setDaemon(true);                           // configure thread
+
+        // ueh是ForkJoinPool构造函数中传入的UncaughtExceptionHandler，默认为null
         if ((handler = ueh) != null)
             wt.setUncaughtExceptionHandler(handler);
+
+        // 创建一个工作队列，构造时设置工作队列的forkJoin池为本池，工作队列的拥有者为待注册线程
         WorkQueue w = new WorkQueue(this, wt);
+
         int i = 0;                                    // assign a pool index
+
+        // 在config中取出FIFO_QUEUE标志位，标志位为1则是FIFO_QUEUE，为0则是LIFO_QUEUE
         int mode = config & MODE_MASK;
+
         int rs = lockRunState();
         try {
             WorkQueue[] ws; int n;                    // skip if no array
+
+            // 如果工作队列未初始化则跳过
             if ((ws = workQueues) != null && (n = ws.length) > 0) {
                 int s = indexSeed += SEED_INCREMENT;  // unlikely to collide
                 int m = n - 1;
@@ -1559,6 +1582,8 @@ public class ForkJoinPool extends AbstractExecutorService {
         } finally {
             unlockRunState(rs, rs & ~RSLOCK);
         }
+
+        // 设置线程名为：workerNamePrefix + num
         wt.setName(workerNamePrefix.concat(Integer.toString(i >>> 1)));
         return w;
     }
@@ -2525,6 +2550,14 @@ public class ForkJoinPool extends AbstractExecutorService {
      *         the caller is not permitted to modify threads
      *         because it does not hold {@link
      *         java.lang.RuntimePermission}{@code ("modifyThread")}
+     *
+     *         (Math.min(MAX_CAP, Runtime.getRuntime().availableProcessors()),
+     *              defaultForkJoinWorkerThreadFactory, null, false)
+     * 无参ForkJoinPool()构造函数中，所设置的默认参数如下：
+     * <li>parallelism = cpu线程数</li>
+     * <li>factory = new DefaultForkJoinWorkerThreadFactory();</li>
+     * <li>handler = null</li>
+     * <li>asyncMode = false，true：先进先出队列，false：后进先出</li>
      */
     public ForkJoinPool(int parallelism,
                         ForkJoinWorkerThreadFactory factory,
@@ -2555,6 +2588,8 @@ public class ForkJoinPool extends AbstractExecutorService {
      * Creates a {@code ForkJoinPool} with the given parameters, without
      * any security checks or parameter validation.  Invoked directly by
      * makeCommonPool.
+     *
+     * parallelism: cpu线程数
      */
     private ForkJoinPool(int parallelism,
                          ForkJoinWorkerThreadFactory factory,
@@ -2564,8 +2599,13 @@ public class ForkJoinPool extends AbstractExecutorService {
         this.workerNamePrefix = workerNamePrefix;
         this.factory = factory;
         this.ueh = handler;
+
+        // parallelism的最大值MAX_CAP=0x7fff，所以parallelism & SMASK获得的还是原值，mode=0或者1<<16，1ffff
+        // 运算完后，this.config的二进制位含义为：含义未知15位[ff 0000000] + FIFO_QUEUE标志位1位[0] + parallelism原码低16位[ff ff]
         this.config = (parallelism & SMASK) | mode;
+
         long np = (long)(-parallelism); // offset ctl counts
+        // 运算完后，this.ctl的二进制位含义为：-parallelism补码低16位[ff ff] + -parallelism补码低16位[ff ff] + 含义未知32位[ff ff ff ff]
         this.ctl = ((np << AC_SHIFT) & AC_MASK) | ((np << TC_SHIFT) & TC_MASK);
     }
 
